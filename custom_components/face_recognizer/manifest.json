@@ -1,0 +1,10 @@
+{
+  "domain": "face_recognizer",
+  "name": "Face Recognizer",
+  "version": "1.0.0",
+  "documentation": "https://github.com/jobijose/homeassistant-face-recognizer",
+  "requirements": [],
+  "dependencies": ["mqtt"],
+  "codeowners": ["@jobijose"],
+  "config_flow": true
+}
