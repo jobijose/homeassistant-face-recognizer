@@ -10,3 +10,7 @@ logger:
   default: info
   logs:
     custom_components.face_recognizer: debug
+    homeassistant.components.mqtt: debug
+
+# MQTT configuration - no sensor needed here since face_recognizer integration handles it
+mqtt:
