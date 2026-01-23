@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ..:/workspaces/homeassistant-face-recognizer:cached
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - homeassistant
+      - mqtt
+    networks:
+      - face-recognizer
+    command: /bin/sh -c "while sleep 1000; do :; done"
+
+  homeassistant:
+    image: homeassistant/home-assistant:latest
+    restart: unless-stopped
+    environment:
+      - TZ=UTC
+    volumes:
+      - ha-config:/config
+      - ../custom_components:/config/custom_components
+      - /run/dbus:/run/dbus:ro
+    ports:
+      - "8123:8123"
+    networks:
+      - face-recognizer
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8123"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  mqtt:
+    image: eclipse-mosquitto:latest
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt-data:/mosquitto/data
+      - mqtt-logs:/mosquitto/log
+    networks:
+      - face-recognizer
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 1883 -C 1 -t '$$SYS/broker/version' | grep -q ."]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  ha-config:
+  mqtt-data:
+  mqtt-logs:
+
+networks:
+  face-recognizer:
+    driver: bridge

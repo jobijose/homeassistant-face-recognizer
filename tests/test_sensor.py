@@ -1,171 +1,178 @@
-"""Tests for the Face Recognizer sensor platform."""
+"""Tests for Face Recognizer sensor."""
 
 import json
-import pytest
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+import uuid
 
-from homeassistant.components.mqtt import DATA_MQTT
-from homeassistant.components.mqtt.models import ReceiveMessage
-from homeassistant.config_entries import ConfigEntry
+import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.const import STATE_UNKNOWN
 
-from custom_components.face_recognizer.sensor import (
-    FaceRecognizerSensor,
-    async_setup_entry,
-    async_unload_entry,
+from custom_components.face_recognizer.const import (
+    DOMAIN,
+    EVENT_TYPE_UPDATE,
+    STATUS_YES,
+    STATUS_NO,
+    STATUS_RECOGNIZED,
+    STATUS_UNRECOGNIZED,
+    ATTR_TIMESTAMP,
+    ATTR_EVENT_ID,
+    ATTR_STATUS,
 )
-from custom_components.face_recognizer.const import DOMAIN, EVENT_RECOGNITION, MQTT_TOPIC
+from custom_components.face_recognizer.sensor import FaceRecognizerSensor
 
 
 @pytest.fixture
-def mock_hass():
-    """Create a mock Home Assistant instance."""
-    hass = MagicMock(spec=HomeAssistant)
-    hass.data = {}
-    hass.bus = MagicMock()
-    hass.bus.async_fire = AsyncMock()
-    hass.components = MagicMock()
-    hass.components.mqtt = MagicMock()
-    hass.components.mqtt.async_subscribe = AsyncMock()
-    return hass
+def sensor(hass: HomeAssistant):
+    """Create a sensor instance."""
+    return FaceRecognizerSensor("test_entry")
 
 
-@pytest.fixture
-def mock_entry():
-    """Create a mock config entry."""
-    entry = MagicMock(spec=ConfigEntry)
-    entry.entry_id = "test_entry_id"
-    return entry
+def test_sensor_initialization(sensor):
+    """Test sensor initialization."""
+    assert sensor._attr_native_value == STATE_UNKNOWN
+    assert sensor.last_timestamp is None
+    assert sensor.last_event_id is None
 
 
-@pytest.fixture
-def mock_async_add_entities():
-    """Create a mock async_add_entities function."""
-    return MagicMock()
-
-
-@pytest.mark.asyncio
-async def test_async_setup_entry_mqtt_not_available(mock_hass, mock_entry, mock_async_add_entities):
-    """Test that setup fails gracefully when MQTT is not available."""
-    # MQTT not in hass.data
-    mock_hass.data = {}
-    
-    await async_setup_entry(mock_hass, mock_entry, mock_async_add_entities)
-    
-    # Should not add entities or subscribe to MQTT
-    mock_async_add_entities.assert_not_called()
-    mock_hass.components.mqtt.async_subscribe.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_async_setup_entry_mqtt_available(mock_hass, mock_entry, mock_async_add_entities):
-    """Test successful setup when MQTT is available."""
-    # MQTT available
-    mock_hass.data[DATA_MQTT] = MagicMock()
-    mock_unsub = AsyncMock()
-    mock_hass.components.mqtt.async_subscribe.return_value = mock_unsub
-    
-    await async_setup_entry(mock_hass, mock_entry, mock_async_add_entities)
-    
-    # Should add entities and subscribe to MQTT
-    mock_async_add_entities.assert_called_once()
-    mock_hass.components.mqtt.async_subscribe.assert_called_once_with(
-        MQTT_TOPIC, 
-        mock_hass.components.mqtt.async_subscribe.call_args[0][1]  # message_received callback
-    )
-    
-    # Should store unsubscribe callback
-    assert mock_hass.data[DOMAIN][mock_entry.entry_id] == mock_unsub
-
-
-@pytest.mark.asyncio
-async def test_async_setup_entry_mqtt_subscription_fails(mock_hass, mock_entry, mock_async_add_entities):
-    """Test setup when MQTT subscription fails."""
-    # MQTT available but subscription fails
-    mock_hass.data[DATA_MQTT] = MagicMock()
-    mock_hass.components.mqtt.async_subscribe.side_effect = Exception("Connection failed")
-    
-    await async_setup_entry(mock_hass, mock_entry, mock_async_add_entities)
-    
-    # Should still add entities but store None for unsubscribe callback
-    mock_async_add_entities.assert_called_once()
-    assert mock_hass.data[DOMAIN][mock_entry.entry_id] is None
-
-
-@pytest.mark.asyncio
-async def test_message_received_valid_json(mock_hass, mock_entry, mock_async_add_entities):
-    """Test message processing with valid JSON payload."""
-    # Setup
-    mock_hass.data[DATA_MQTT] = MagicMock()
-    mock_unsub = AsyncMock()
-    mock_hass.components.mqtt.async_subscribe.return_value = mock_unsub
-    
-    await async_setup_entry(mock_hass, mock_entry, mock_async_add_entities)
-    
-    # Get the message_received callback
-    message_received = mock_hass.components.mqtt.async_subscribe.call_args[0][1]
-    sensor = mock_async_add_entities.call_args[0][0][0]  # First entity added
-    
-    # Set hass attribute on sensor for async_write_ha_state to work
-    sensor.hass = mock_hass
-    sensor.async_write_ha_state = AsyncMock()
-    
-    # Create mock message
-    test_payload = {
-        "status": True,
-        "timestamp": "2024-01-01T12:00:00Z"
+def test_validate_event_success(sensor):
+    """Test valid event validation."""
+    event = {
+        "type": "update",
+        "status": "yes",
+        "timestamp": datetime.now().isoformat(),
+        "event_id": str(uuid.uuid4()),
     }
-    mock_msg = MagicMock(spec=ReceiveMessage)
-    mock_msg.payload = json.dumps(test_payload)
+    assert sensor.validate_event(event) is True
+
+
+def test_validate_event_missing_field(sensor):
+    """Test event validation with missing field."""
+    event = {
+        "type": "update",
+        "status": "yes",
+        "timestamp": datetime.now().isoformat(),
+    }
+    assert sensor.validate_event(event) is False
+
+
+def test_validate_event_invalid_status(sensor):
+    """Test event validation with invalid status."""
+    event = {
+        "type": "update",
+        "status": "maybe",
+        "timestamp": datetime.now().isoformat(),
+        "event_id": str(uuid.uuid4()),
+    }
+    assert sensor.validate_event(event) is False
+
+
+def test_validate_event_yes_status(sensor):
+    """Test event validation with 'yes' status."""
+    event = {
+        "type": "update",
+        "status": "YES",
+        "timestamp": datetime.now().isoformat(),
+        "event_id": str(uuid.uuid4()),
+    }
+    assert sensor.validate_event(event) is True
+
+
+def test_validate_event_no_status(sensor):
+    """Test event validation with 'no' status."""
+    event = {
+        "type": "update",
+        "status": "NO",
+        "timestamp": datetime.now().isoformat(),
+        "event_id": str(uuid.uuid4()),
+    }
+    assert sensor.validate_event(event) is True
+
+
+def test_process_event_recognized(sensor):
+    """Test processing recognized event."""
+    timestamp = datetime.now().isoformat()
+    event_id = str(uuid.uuid4())
     
-    # Process message
-    await message_received(mock_msg)
+    # Mock async_write_ha_state
+    sensor.async_write_ha_state = MagicMock()
     
-    # Verify sensor state updated
-    assert sensor.native_value is True
-    assert sensor.extra_state_attributes == {"timestamp": "2024-01-01T12:00:00Z"}
+    sensor.process_event(STATUS_YES, timestamp, event_id)
+    
+    assert sensor.recognition_status is True
+    assert sensor.last_timestamp == timestamp
+    assert sensor.last_event_id == event_id
+    assert sensor.last_status == STATUS_RECOGNIZED
+    assert sensor._attr_native_value == "true"
     sensor.async_write_ha_state.assert_called_once()
-    
-    # Verify event fired
-    mock_hass.bus.async_fire.assert_called_once_with(
-        EVENT_RECOGNITION,
-        {
-            "status": True,
-            "timestamp": "2024-01-01T12:00:00Z",
-            "raw": test_payload,
-        }
-    )
 
 
-@pytest.mark.asyncio
-async def test_message_received_invalid_json(mock_hass, mock_entry, mock_async_add_entities):
-    """Test message processing with invalid JSON payload."""
-    # Setup
-    mock_hass.data[DATA_MQTT] = MagicMock()
-    mock_unsub = AsyncMock()
-    mock_hass.components.mqtt.async_subscribe.return_value = mock_unsub
+def test_process_event_unrecognized(sensor):
+    """Test processing unrecognized event."""
+    timestamp = datetime.now().isoformat()
+    event_id = str(uuid.uuid4())
     
-    await async_setup_entry(mock_hass, mock_entry, mock_async_add_entities)
+    # Mock async_write_ha_state
+    sensor.async_write_ha_state = MagicMock()
     
-    # Get the message_received callback
-    message_received = mock_hass.components.mqtt.async_subscribe.call_args[0][1]
+    sensor.process_event(STATUS_NO, timestamp, event_id)
     
-    # Create mock message with invalid JSON
-    mock_msg = MagicMock(spec=ReceiveMessage)
-    mock_msg.payload = "invalid json"
-    
-    # Process message - should not raise exception
-    await message_received(mock_msg)
-    
-    # Verify no event was fired
-    mock_hass.bus.async_fire.assert_not_called()
+    assert sensor.recognition_status is False
+    assert sensor.last_timestamp == timestamp
+    assert sensor.last_event_id == event_id
+    assert sensor.last_status == STATUS_UNRECOGNIZED
+    assert sensor._attr_native_value == "false"
+    sensor.async_write_ha_state.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_message_received_string_status(mock_hass, mock_entry, mock_async_add_entities):
-    """Test message processing with string status."""
-    # Setup
-    mock_hass.data[DATA_MQTT] = MagicMock()
+def test_extra_state_attributes(sensor):
+    """Test extra state attributes."""
+    timestamp = datetime.now().isoformat()
+    event_id = str(uuid.uuid4())
+    
+    sensor.last_timestamp = timestamp
+    sensor.last_event_id = event_id
+    sensor.last_status = STATUS_RECOGNIZED
+
+    attrs = sensor.extra_state_attributes
+    
+    assert attrs[ATTR_TIMESTAMP] == timestamp
+    assert attrs[ATTR_EVENT_ID] == event_id
+    assert attrs[ATTR_STATUS] == STATUS_RECOGNIZED
+
+
+def test_http_update_recognized(sensor):
+    """Test HTTP-based sensor update for recognized."""
+    timestamp = datetime.now().isoformat()
+    event_id = str(uuid.uuid4())
+    
+    # Mock async_write_ha_state
+    sensor.async_write_ha_state = MagicMock()
+    
+    sensor.async_update_from_http(True, timestamp, event_id)
+    
+    assert sensor.recognition_status is True
+    assert sensor.last_timestamp == timestamp
+    assert sensor.last_event_id == event_id
+    assert sensor._attr_native_value == "true"
+    sensor.async_write_ha_state.assert_called_once()
+
+
+def test_http_update_unrecognized(sensor):
+    """Test HTTP-based sensor update for unrecognized."""
+    timestamp = datetime.now().isoformat()
+    
+    # Mock async_write_ha_state
+    sensor.async_write_ha_state = MagicMock()
+    
+    sensor.async_update_from_http(False, timestamp)
+    
+    assert sensor.recognition_status is False
+    assert sensor.last_timestamp == timestamp
+    assert sensor._attr_native_value == "false"
+    assert sensor.last_event_id.startswith("http-")
+    sensor.async_write_ha_state.assert_called_once()
     mock_unsub = AsyncMock()
     mock_hass.components.mqtt.async_subscribe.return_value = mock_unsub
     

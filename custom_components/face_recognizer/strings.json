@@ -1,0 +1,18 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Set up Face Recognizer",
+                "description": "Configure Face Recognizer integration."
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "Face Recognizer Options",
+                "description": "Configure Face Recognizer settings."
+            }
+        }
+    }
+}
