@@ -3,7 +3,6 @@
     "dockerComposeFile": "docker-compose.yml",
     "service": "dev",
     "workspaceFolder": "/workspaces/homeassistant-face-recognizer",
-    "postCreateCommand": "scripts/setup",
     "forwardPorts": [
         8123,
         1883

@@ -1,11 +1,11 @@
 # Face Recognizer Integration for Home Assistant
 
-A robust custom integration that connects your **Face Recognizer application** with **Home Assistant** via MQTT. This integration provides real-time face recognition status updates.
+A custom integration that connects your **Face Recognizer application** with **Home Assistant** via MQTT. This integration provides real-time face recognition status updates with dropdown state support for automations.
 
 ## 📋 Requirements
 
-- Home Assistant 2025.2.4 or later
-- MQTT broker configured in Home Assistant
+- Home Assistant 2025.2.0 or later
+- MQTT integration enabled and configured
 - Face recognition application that publishes to MQTT
 
 ## 🚀 Installation
@@ -17,7 +17,17 @@ A robust custom integration that connects your **Face Recognizer application** w
 
 ### Option 2: Manual Installation
 1. Download this repository
-2. Copy the `face_recognizer` folder to your `custom_components` directory
+2. Copy the `custom_components/face_recognizer` folder to your Home Assistant's `custom_components` directory:
+   ```
+   custom_components/
+     face_recognizer/
+       __init__.py
+       config_flow.py
+       const.py
+       manifest.json
+       sensor.py
+       strings.json
+   ```
 3. Restart Home Assistant
 
 ### Option 3: Direct Integration Setup
@@ -25,70 +35,93 @@ A robust custom integration that connects your **Face Recognizer application** w
 
 ## ⚙️ Configuration
 
-### 1. MQTT Setup
-Ensure MQTT is properly configured in your `configuration.yaml`:
+### 1. MQTT Setup (Required)
+Configure MQTT in Home Assistant via **Settings** → **Devices & Services** → **Add Integration** → **MQTT**
 
+Or via `configuration.yaml`:
 ```yaml
-# Basic MQTT configuration
 mqtt:
-  # Your MQTT broker settings here
+  broker: <YOUR_MQTT_BROKER>
+  port: 1883
+  username: <YOUR_USERNAME>  # optional
+  password: <YOUR_PASSWORD>  # optional
 ```
 
 ### 2. Integration Setup
-1. Go to **Configuration** → **Integrations**
+1. Go to **Settings** → **Devices & Services**
 2. Click **Add Integration**
 3. Search for **Face Recognizer**
-4. Follow the setup wizard
+4. Click **Submit** (no additional configuration required)
+
+The integration will automatically subscribe to MQTT messages on the topic: `face_recognizer/events`
 
 ## 📡 MQTT Message Format
 
-The integration listens to the topic `face_recognizer/recognition_result` and expects JSON messages:
+The integration listens to the topic `face_recognizer/events` and expects JSON messages:
 
 ```json
 {
-  "status": true,
-  "timestamp": "2024-01-01T12:00:00Z"
+  "type": "update",
+  "status": "yes",
+  "timestamp": "2026-01-23T12:00:00Z",
+  "event_id": "event_123"
 }
 ```
 
+### Required Fields
+
+- **type**: Event type (currently only `"update"` events are processed)
+- **status**: Recognition status - `"yes"` (face recognized) or `"no"` (face not recognized)
+- **timestamp**: ISO 8601 formatted timestamp of the event
+- **event_id**: Unique identifier for the event (can be generated with `str(uuid.uuid4())` in Python)
+
 ### Status Values
-The `status` field accepts multiple formats and converts them to boolean:
+- `"yes"` → Face recognized
+- `"no"` → Face not recognized
 
-**Boolean Values:**
-- `true` → `true` (face recognized)
-- `false` → `false` (no face recognized)
+## 🎯 Entities
 
-**String Values (converted to boolean):**
-- `"true"`, `"recognised"`, `"recognized"`, `"detected"`, `"1"`, `"yes"` → `true`
-- Any other string → `false`
+### Sensor: Face Recognizer Status
 
-**Unknown Types:**
-- Defaults to `false`
+- **Entity ID**: `sensor.face_recognizer_status`
+- **Device Class**: `ENUM` (provides dropdown options in automations)
+- **State**: `"yes"` or `"no"`
+- **Icon**: `mdi:face-recognition`
 
-## 🎯 Usage
+**State Attributes:**
+- `status`: Current status (`"yes"` or `"no"`)
+- `timestamp`: ISO timestamp of the last recognition event
+- `event_id`: Unique ID of the last event
+- `last_update`: ISO timestamp of when the sensor last updated
+- `status_text`: Same as status
 
-### Sensor Entity
-The integration creates a sensor entity: `sensor.face_recognizer_status`
+### Device Information
+- **Name**: Face Recognizer
+- **Manufacturer**: jobijose
+- **Model**: Face Recognizer
+- **Suggested Area**: Security
 
-**Attributes:**
-- `status`: Boolean value (`true`/`false`)
-- `timestamp`: Last recognition timestamp
+## 📊 Events
 
-### Event Firing
-Fires `face_recognition` events with data:
-- `status`: Boolean recognition status
-- `timestamp`: ISO timestamp
-- `raw`: Complete JSON payload
+The integration fires `face_recognition_event` whenever a valid MQTT message is received.
+
+**Event Data:**
+- `status`: Recognition status (`"yes"` or `"no"`)
+- `timestamp`: ISO timestamp from the MQTT payload
+- `event_id`: Event ID from the MQTT payload
+- `raw`: The full JSON payload received
 
 ## 🤖 Automations
 
-### Boolean State Automation
+### State-based Automation (with Dropdown)
+The ENUM device class provides a dropdown selector in the automation UI:
+
 ```yaml
 alias: "Turn on lights when face recognized"
 trigger:
   - platform: state
     entity_id: sensor.face_recognizer_status
-    to: "true"
+    to: "yes"
 action:
   - service: light.turn_on
     target:
@@ -100,14 +133,15 @@ action:
 alias: "Notify on face recognition"
 trigger:
   - platform: event
-    event_type: face_recognition
+    event_type: face_recognition_event
 condition:
   - condition: template
-    value_template: "{{ trigger.event.data.status }}"
+    value_template: "{{ trigger.event.data.status == 'yes' }}"
 action:
   - service: notify.mobile_app_your_phone
     data:
       message: "Face recognized at {{ trigger.event.data.timestamp }}"
+mode: single
 ```
 
 ### Advanced Automation with Conditions
@@ -121,7 +155,7 @@ action:
       - conditions:
           - condition: state
             entity_id: sensor.face_recognizer_status
-            state: "true"
+            state: "yes"
         sequence:
           - service: light.turn_on
             target:
@@ -132,11 +166,12 @@ action:
       - conditions:
           - condition: state
             entity_id: sensor.face_recognizer_status
-            state: "false"
+            state: "no"
         sequence:
           - service: light.turn_off
             target:
               entity_id: light.hallway
+mode: single
 ```
 
 ## 🧪 Testing
@@ -151,29 +186,102 @@ pip install pytest pytest-asyncio
 pytest tests/ -v
 ```
 
-## 🐛 Troubleshooting
+## 🐛Integration not showing in Settings**
 
-### Common Issues
-
-**1. MQTT Connection Error**
+Ensure the `custom_components` folder structure is correct:
 ```
-Cannot subscribe to topic 'face_recognizer/recognition_result'
+custom_components/
+  face_recognizer/
+    __init__.py
+    config_flow.py
+    const.py
+    manifest.json
+    sensor.py
+    strings.json
 ```
-**Solution:** Ensure MQTT integration is properly configured and running.
+Restart Home Assistant after installation.
 
-**2. Automation Timeout**
+**2. MQTT Connection Error**
 ```
-Your new automation has saved, but waiting for it to setup has timed out
+MQTT integration is not available. Please ensure MQTT is configured.
 ```
-**Solution:** Check for conflicting MQTT sensor configurations in `configuration.yaml`.
+**Solution:** Configure MQTT integration first via **Settings** → **Devices & Services** → **MQTT**
 
-**3. Sensor Shows "Unknown"**
-**Solution:** Check MQTT message format and ensure the face recognition app is publishing correctly.
+**3. MQTT messages not being received**
+- Verify MQTT integration is properly configured and running
+- Check that messages are being published to `face_recognizer/events`
+- Verify the MQTT payload matches the required format exactly
+- Check MQTT broker logs
 
+**4. Sensor Shows "no" or doesn't update**
+- Verify the face recognition app is publishing messages
+- C🧪 Testing
+
+### Manual Testing with MQTT
+
+Publish a test message to your MQTT broker:
+
+```bash
+mosquitto_pub -h <MQTT_BROKER> -t "face_recognizer/events" -m '{
+  "type": "update",
+  "status": "yes",
+  "timestamp": "2026-01-23T12:00:00Z",
+  "event_id": "test_event_001"
+}'
+```
+
+Using the included test script:
+```bash
+python3 scripts/mqtt_test_publisher.py
+```
+
+### Running Unit Tests
+
+```bash
+# Install test dependencies
+pip install pytest pytest-asyncio
+
+# Run tests
+pytest tests/ -v
+```
+
+## 📝 Changelog
+
+### v1.0.0
+- ✅ ENUM device class with dropdown support for automations
+- ✅ MQTT subscription to `face_recognizer/events`
+- ✅ Event firing with detailed event data
+- ✅ Sensor with yes/no states
+- ✅ Debug logging support
+- ✅ Config flow (UI-based setup)
+- ✅ Automatic device registration
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 👤 Author
+
+**jobijose**
+- GitHub: [@jobijose](https://github.com/jobijose)
 ### Debug Logging
 Enable debug logging in `configuration.yaml`:
 
 ```yaml
+logger:
+  default: info
+  logs:
+    custom_components.face_recognizer: debug
+    homeassistant.components.mqtt: debug
+```
+
+View logs in **Settings** → **System** → **Logs** or via terminal:
+```bash
+tail -f /config/home-assistant.log | grep face_recognizer
 logger:
   logs:
     custom_components.face_recognizer: debug

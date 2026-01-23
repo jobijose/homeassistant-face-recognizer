@@ -1,3 +1,5 @@
+"""Face Recognizer sensor platform."""
+
 import json
 import logging
 from datetime import datetime
@@ -9,6 +11,7 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     ATTR_EVENT_ID,
@@ -30,10 +33,9 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities,  # noqa: ANN001
+    async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Face Recognizer sensor for this config entry."""
-    # Check if MQTT is available
     if DATA_MQTT not in hass.data:
         _LOGGER.error(
             "MQTT integration is not available. Please ensure MQTT is configured."
@@ -47,29 +49,23 @@ async def async_setup_entry(
         """Handle incoming MQTT event."""
         try:
             payload = json.loads(msg.payload)
-            _LOGGER.debug(f"Received MQTT message: {payload}")
+            _LOGGER.debug("Received MQTT message: %s", payload)
 
-            # Validate event structure
             if not sensor.validate_event(payload):
-                _LOGGER.error(f"Invalid event structure: {payload}")
+                _LOGGER.error("Invalid event structure: %s", payload)
                 return
 
-            # Extract event data
             event_type = payload.get("type")
             status = payload.get("status", "").lower()
             timestamp = payload.get("timestamp")
             event_id = payload.get("event_id")
 
-            # Only process "update" events
             if event_type != EVENT_TYPE_UPDATE:
-                if debug_enabled:
-                    _LOGGER.debug(f"Ignoring non-update event type: {event_type}")
+                _LOGGER.debug("Ignoring non-update event type: %s", event_type)
                 return
 
-            # Update sensor with event data
             sensor.process_event(status, timestamp, event_id)
 
-            # Fire event for automations
             hass.bus.async_fire(
                 EVENT_TYPE_RECOGNITION,
                 {
@@ -80,26 +76,33 @@ async def async_setup_entry(
                 },
             )
 
-            if debug_enabled:
-                _LOGGER.info(
-                    f"Face recognition event processed: "
-                    f"status={sensor.last_status}, timestamp={timestamp}, event_id={event_id}"
-                )
+            _LOGGER.info(
+                "Face recognition event processed: status=%s, timestamp=%s, event_id=%s",
+                sensor.last_status,
+                timestamp,
+                event_id,
+            )
 
         except json.JSONDecodeError:
-            _LOGGER.error(f"Invalid JSON in MQTT message: {msg.payload}")
-        except Exception as e:
-            _LOGGER.error(f"Error processing MQTT message: {e}")
+            _LOGGER.error("Invalid JSON in MQTT message: %s", msg.payload)
+        except Exception:
+            _LOGGER.exception("Error processing MQTT message")
 
-    # Subscribe and store unsubscribe callback so it can be removed on unload
     try:
         unsub = await mqtt.async_subscribe(hass, MQTT_TOPIC, message_received)
         hass.data.setdefault(DOMAIN, {})[entry.entry_id] = unsub
         _LOGGER.info("Successfully subscribed to MQTT topic: %s", MQTT_TOPIC)
-    except Exception as e:
-        _LOGGER.error("Failed to subscribe to MQTT topic %s: %s", MQTT_TOPIC, e)
-        # Still add the sensor but it won't receive MQTT messages
+    except Exception:
+        _LOGGER.exception("Failed to subscribe to MQTT topic %s", MQTT_TOPIC)
         hass.data.setdefault(DOMAIN, {})[entry.entry_id] = None
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload the sensor platform."""
+    unsub = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    if unsub:
+        unsub()
+    return True
 
 
 class FaceRecognizerSensor(SensorEntity):
@@ -118,7 +121,6 @@ class FaceRecognizerSensor(SensorEntity):
         self._entry_id = entry_id
         self._attr_native_value = STATUS_NO
 
-        # Local variables for storing event data
         self.last_timestamp: str | None = None
         self.last_event_id: str | None = None
         self.last_status: str = STATUS_NO
@@ -149,29 +151,24 @@ class FaceRecognizerSensor(SensorEntity):
 
         for field in required_fields:
             if field not in payload:
-                _LOGGER.error(f"Missing required field in event: {field}")
+                _LOGGER.error("Missing required field in event: %s", field)
                 return False
 
-        # Validate status values
         status = payload.get("status", "").lower()
         if status not in [STATUS_YES, STATUS_NO]:
-            _LOGGER.error(f"Invalid status value: {status}. Expected 'yes' or 'no'")
+            _LOGGER.error("Invalid status value: %s. Expected 'yes' or 'no'", status)
             return False
 
         return True
 
     def process_event(self, status: str, timestamp: str, event_id: str) -> None:
         """Process recognition event and update sensor state."""
-        # Convert status to boolean
         self.recognition_status = status == STATUS_YES
 
-        # Store in local variables
         self.last_timestamp = timestamp
         self.last_event_id = event_id
         self.last_status = status
 
-        # Update sensor state with yes/no values
         self._attr_native_value = STATUS_YES if self.recognition_status else STATUS_NO
 
-        # Write state to Home Assistant
         self.async_write_ha_state()
