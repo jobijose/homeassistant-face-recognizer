@@ -113,21 +113,6 @@ The integration fires `face_recognition_event` whenever a valid MQTT message is 
 
 ## 🤖 Automations
 
-### State-based Automation (with Dropdown)
-The ENUM device class provides a dropdown selector in the automation UI:
-
-```yaml
-alias: "Turn on lights when face recognized"
-trigger:
-  - platform: state
-    entity_id: sensor.face_recognizer_status
-    to: "yes"
-action:
-  - service: light.turn_on
-    target:
-      entity_id: light.hallway
-```
-
 ### Event-based Automation
 ```yaml
 alias: "Notify on face recognition"
@@ -144,155 +129,11 @@ action:
 mode: single
 ```
 
-### Advanced Automation with Conditions
-```yaml
-alias: "Smart lighting based on face recognition"
-trigger:
-  - platform: state
-    entity_id: sensor.face_recognizer_status
-action:
-  - choose:
-      - conditions:
-          - condition: state
-            entity_id: sensor.face_recognizer_status
-            state: "yes"
-        sequence:
-          - service: light.turn_on
-            target:
-              entity_id: light.hallway
-          - service: notify.persistent_notification
-            data:
-              message: "Welcome home!"
-      - conditions:
-          - condition: state
-            entity_id: sensor.face_recognizer_status
-            state: "no"
-        sequence:
-          - service: light.turn_off
-            target:
-              entity_id: light.hallway
-mode: single
-```
-
-## 🧪 Testing
-
-The integration includes comprehensive tests. Run them with:
-
-```bash
-# Install test dependencies
-pip install pytest pytest-asyncio
-
-# Run tests
-pytest tests/ -v
-```
-
-## 🐛Integration not showing in Settings**
-
-Ensure the `custom_components` folder structure is correct:
-```
-custom_components/
-  face_recognizer/
-    __init__.py
-    config_flow.py
-    const.py
-    manifest.json
-    sensor.py
-    strings.json
-```
-Restart Home Assistant after installation.
-
-**2. MQTT Connection Error**
-```
-MQTT integration is not available. Please ensure MQTT is configured.
-```
-**Solution:** Configure MQTT integration first via **Settings** → **Devices & Services** → **MQTT**
-
-**3. MQTT messages not being received**
-- Verify MQTT integration is properly configured and running
-- Check that messages are being published to `face_recognizer/events`
-- Verify the MQTT payload matches the required format exactly
-- Check MQTT broker logs
-
-**4. Sensor Shows "no" or doesn't update**
-- Verify the face recognition app is publishing messages
-- C🧪 Testing
-
-### Manual Testing with MQTT
-
-Publish a test message to your MQTT broker:
-
-```bash
-mosquitto_pub -h <MQTT_BROKER> -t "face_recognizer/events" -m '{
-  "type": "update",
-  "status": "yes",
-  "timestamp": "2026-01-23T12:00:00Z",
-  "event_id": "test_event_001"
-}'
-```
-
-Using the included test script:
-```bash
-python3 scripts/mqtt_test_publisher.py
-```
-
-### Running Unit Tests
-
-```bash
-# Install test dependencies
-pip install pytest pytest-asyncio
-
-# Run tests
-pytest tests/ -v
-```
-
-## 📝 Changelog
-
-### v1.0.0
-- ✅ ENUM device class with dropdown support for automations
-- ✅ MQTT subscription to `face_recognizer/events`
-- ✅ Event firing with detailed event data
-- ✅ Sensor with yes/no states
-- ✅ Debug logging support
-- ✅ Config flow (UI-based setup)
-- ✅ Automatic device registration
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 👤 Author
-
-**jobijose**
-- GitHub: [@jobijose](https://github.com/jobijose)
-### Debug Logging
-Enable debug logging in `configuration.yaml`:
-
-```yaml
-logger:
-  default: info
-  logs:
-    custom_components.face_recognizer: debug
-    homeassistant.components.mqtt: debug
-```
-
-View logs in **Settings** → **System** → **Logs** or via terminal:
-```bash
-tail -f /config/home-assistant.log | grep face_recognizer
-logger:
-  logs:
-    custom_components.face_recognizer: debug
-    homeassistant.components.mqtt: debug
-```
-
 ## 📝 Changelog
 
 ### v1.0.0
 - ✅ Initial release with face recognizer Home assistant custom component
 
-## 📄 License
+## 🤝 Contributing
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Contributions are welcome! Please feel free to submit a Pull Request.
