@@ -29,6 +29,11 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Upper bounds for untrusted MQTT input; anyone able to publish to the topic
+# controls these values, so keep them from bloating state, events and logs.
+MAX_PAYLOAD_BYTES = 1024
+MAX_FIELD_LENGTH = 64
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -48,15 +53,21 @@ async def async_setup_entry(
     async def message_received(msg: ReceiveMessage) -> None:
         """Handle incoming MQTT event."""
         try:
+            if len(msg.payload) > MAX_PAYLOAD_BYTES:
+                _LOGGER.warning(
+                    "Ignoring MQTT message larger than %d bytes", MAX_PAYLOAD_BYTES
+                )
+                return
+
             payload = json.loads(msg.payload)
-            _LOGGER.debug("Received MQTT message: %s", payload)
+            _LOGGER.debug("Received MQTT message: %r", payload)
 
             if not sensor.validate_event(payload):
-                _LOGGER.error("Invalid event structure: %s", payload)
+                _LOGGER.warning("Ignoring MQTT message with invalid event structure")
                 return
 
             event_type = payload.get("type")
-            status = payload.get("status", "").lower()
+            status = payload["status"].lower()
             timestamp = payload.get("timestamp")
             event_id = payload.get("event_id")
 
@@ -72,7 +83,6 @@ async def async_setup_entry(
                     ATTR_STATUS: sensor.last_status,
                     ATTR_TIMESTAMP: timestamp,
                     ATTR_EVENT_ID: event_id,
-                    "raw": payload,
                 },
             )
 
@@ -83,26 +93,19 @@ async def async_setup_entry(
                 event_id,
             )
 
-        except json.JSONDecodeError:
-            _LOGGER.error("Invalid JSON in MQTT message: %s", msg.payload)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            _LOGGER.warning("Ignoring MQTT message with invalid JSON")
         except Exception:
             _LOGGER.exception("Error processing MQTT message")
 
     try:
         unsub = await mqtt.async_subscribe(hass, MQTT_TOPIC, message_received)
-        hass.data.setdefault(DOMAIN, {})[entry.entry_id] = unsub
+        # Release the subscription when the entry unloads so reloads do not
+        # stack duplicate handlers.
+        entry.async_on_unload(unsub)
         _LOGGER.info("Successfully subscribed to MQTT topic: %s", MQTT_TOPIC)
     except Exception:
         _LOGGER.exception("Failed to subscribe to MQTT topic %s", MQTT_TOPIC)
-        hass.data.setdefault(DOMAIN, {})[entry.entry_id] = None
-
-
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload the sensor platform."""
-    unsub = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-    if unsub:
-        unsub()
-    return True
 
 
 class FaceRecognizerSensor(SensorEntity):
@@ -147,16 +150,28 @@ class FaceRecognizerSensor(SensorEntity):
 
     def validate_event(self, payload: dict) -> bool:
         """Validate MQTT event structure."""
+        if not isinstance(payload, dict):
+            _LOGGER.error("Event payload must be a JSON object")
+            return False
+
         required_fields = ["type", "status", "timestamp", "event_id"]
 
         for field in required_fields:
             if field not in payload:
                 _LOGGER.error("Missing required field in event: %s", field)
                 return False
+            value = payload[field]
+            if not isinstance(value, str) or len(value) > MAX_FIELD_LENGTH:
+                _LOGGER.error(
+                    "Field %s must be a string of at most %d characters",
+                    field,
+                    MAX_FIELD_LENGTH,
+                )
+                return False
 
-        status = payload.get("status", "").lower()
+        status = payload["status"].lower()
         if status not in [STATUS_YES, STATUS_NO]:
-            _LOGGER.error("Invalid status value: %s. Expected 'yes' or 'no'", status)
+            _LOGGER.error("Invalid status value. Expected 'yes' or 'no'")
             return False
 
         return True
