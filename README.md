@@ -109,7 +109,8 @@ The integration fires `face_recognition_event` whenever a valid MQTT message is 
 - `status`: Recognition status (`"yes"` or `"no"`)
 - `timestamp`: ISO timestamp from the MQTT payload
 - `event_id`: Event ID from the MQTT payload
-- `raw`: The full JSON payload received
+
+All payload fields must be strings of at most 64 characters and the message must be under 1 KB; anything else is ignored.
 
 ## 🤖 Automations
 

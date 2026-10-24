@@ -26,7 +26,7 @@ services:
       - ../custom_components:/config/custom_components
       - /run/dbus:/run/dbus:ro
     ports:
-      - "8123:8123"
+      - "127.0.0.1:8123:8123"
     networks:
       - face-recognizer
     healthcheck:
@@ -40,7 +40,7 @@ services:
     image: eclipse-mosquitto:latest
     restart: unless-stopped
     ports:
-      - "1883:1883"
+      - "127.0.0.1:1883:1883"
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mqtt-data:/mosquitto/data

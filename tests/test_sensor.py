@@ -132,3 +132,34 @@ def test_extra_state_attributes() -> None:
     assert attrs[ATTR_TIMESTAMP] == timestamp
     assert attrs[ATTR_EVENT_ID] == event_id
     assert attrs[ATTR_STATUS] == STATUS_YES
+
+
+def test_validate_event_non_dict_payload() -> None:
+    """Test event validation rejects non-object JSON payloads."""
+    sensor = FaceRecognizerSensor("test_entry")
+    assert sensor.validate_event(["yes"]) is False
+    assert sensor.validate_event("yes") is False
+
+
+def test_validate_event_non_string_field() -> None:
+    """Test event validation rejects non-string field values."""
+    sensor = FaceRecognizerSensor("test_entry")
+    event = {
+        "type": "update",
+        "status": 1,
+        "timestamp": datetime.now().isoformat(),
+        "event_id": str(uuid.uuid4()),
+    }
+    assert sensor.validate_event(event) is False
+
+
+def test_validate_event_oversized_field() -> None:
+    """Test event validation rejects oversized field values."""
+    sensor = FaceRecognizerSensor("test_entry")
+    event = {
+        "type": "update",
+        "status": "yes",
+        "timestamp": datetime.now().isoformat(),
+        "event_id": "x" * 10_000,
+    }
+    assert sensor.validate_event(event) is False
